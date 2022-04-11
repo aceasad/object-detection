@@ -1,0 +1,16 @@
+opencv-python
+torch==1.8.1
+pandas
+requests
+PyYAML
+pillow
+tqdm
+torchvision==0.9.1
+matplotlib
+seaborn
+mysql-connector-python
+flask
+flask-restful
+flask-cors
+boto3
+python-dotenv
