@@ -10,6 +10,26 @@ from models.experimental import attempt_load
 from utils.datasets import letterbox
 from utils.general import check_img_size, non_max_suppression, scale_coords
 from utils.torch_utils import select_device
+import os
+from dotenv import load_dotenv,find_dotenv
+import logging
+import boto3
+from botocore.exceptions import ClientError
+
+s3_client = boto3.client(
+'s3',
+aws_access_key_id=os.getenv("AWS_ACCESS_KEY"),
+aws_secret_access_key=os.getenv("AWS_SECRET_KEY"),
+)
+S3_BUCKET = os.getenv("S3_BUCKET_NAME")
+
+load_dotenv(find_dotenv())
+
+AWS_DATABASE_URL = os.getenv("AWS_DATABASE_URL")
+AWS_DATABASE_USERNAME = os.getenv("AWS_DATABASE_USERNAME")
+AWS_DATABASE_PASSWORD = os.getenv("AWS_DATABASE_PASSWORD")
+AWS_DATABASE_NAME = os.getenv("AWS_DATABASE_NAME")
+
 
 label = ["Bottle", "Chair", "Laptop", "Mobile Phone", "Person", "Table"]
 
@@ -58,10 +78,10 @@ class YOLOV5_Detector:
     def SaveInDB(self, insert_query):
         print("running sql")
         mydb = mysql.connector.connect(
-            host="127.0.0.1",
-            user="root",
-            password="robitacka12",
-            database="test"
+            host=AWS_DATABASE_URL,
+            user=AWS_DATABASE_USERNAME,
+            password=AWS_DATABASE_PASSWORD,
+            database=AWS_DATABASE_NAME
         )
         table=self.checkTableExists(mydb,"PEGGS")
         c = mydb.cursor()
@@ -81,13 +101,7 @@ class YOLOV5_Detector:
 
         print(c.rowcount, "record inserted.")
         c.close()
-        # query = "insert into video values (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        # columns = ['frame_count', 'millisecond', 'label', 'boundingBoxLeft', 'boundingBoxTop', 'boundingBoxRight', 'boundingBoxBottom', 'confidence']
-        # for i, data in df.items():
-        #     keys = (i,) + tuple(data[c] for c in columns)
-        #     c = mydb.cursor()
-        #     c.execute(query, keys)
-        #     c.close()
+
 
     def plot_one_box(self, x, img, color=None, label=None, line_thickness=3):
         # Plots one bounding box on image img
@@ -169,7 +183,29 @@ class YOLOV5_Detector:
         y = y*dh
         h = h*dh
         return x,y,w,h
+    
+    def upload_file(self, file_name, bucket, object_name=None):
+        """Upload a file to an S3 bucket
 
+        :param file_name: File to upload
+        :param bucket: Bucket to upload to
+        :param object_name: S3 object name. If not specified then file_name is used
+        :return: True if file was uploaded, else False
+        """
+
+        # If S3 object_name was not specified, use file_name
+        if object_name is None:
+            object_name = os.path.basename(file_name)
+
+        # Upload the file
+        s3_client = boto3.client('s3')
+        try:
+            response = s3_client.upload_file(file_name, bucket, object_name)
+        except ClientError as e:
+            logging.error(e)
+            return False
+        return True
+    
     def detect_on_video(self, video_path):
         video_name = video_path.split('.')[0]
         print(video_name)
@@ -218,7 +254,14 @@ class YOLOV5_Detector:
         outerJson['duration']=int(round(timestamps[dur_index],1))
         vid.release()
         cv2.destroyAllWindows()
-        #Append the ID for table with labels
+        #Upload file to S3 Bucket here
+        #with open(jsonFile, "rb") as f:
+        #    self.upload_file(f,S3_BUCKET)
+        #with open(videoFile,"rb") as f:
+        #    self.upload_file(f,S3_BUCKET)
+        s3_client.upload_file(jsonFile,S3_BUCKET, '%s/%s' % ('jsons',video_name+'_labels.json'))
+        s3_client.upload_file(videoFile,S3_BUCKET, '%s/%s' % ('videos',video_path))
+        
         json.dump(outerJson, open(jsonFile, 'w'))
-        val = (videoFile, jsonFile)
+        val = ("https://pondir.s3.us-east-2.amazonaws.com/videos/"+video_path, "https://pondir.s3.us-east-2.amazonaws.com/jsons/"+video_path+'_labels.json')
         self.SaveInDB(val)
